@@ -100,6 +100,8 @@ export async function run(connect: boolean = true) {
     dotenv.config({ path: path.resolve(__dirname, '../../.env') });
     const host = process.env.HOST;
     assert.ok(host, 'HOST environment variable required to run tests');
+    const port = process.env.PORT;
+    assert.ok(port, 'PORT environment variable required to run tests');
     const user = process.env.USER;
     assert.ok(user, 'USER environment variable required to run tests');
     const password = process.env.PASSWORD;
@@ -115,13 +117,14 @@ export async function run(connect: boolean = true) {
     // Connect to IBM i
     const connection: ConnectionData = {
       name: 'Test Connection',
-      host: '9.5.12.241',
+      host: host,
       username: user,
       password: password,
-      port: 22,
+      port: parseInt(port),
       privateKey: null
     };
-    assert.ok(await commands.executeCommand('code-for-ibmi.connectDirect', connection), 'Failed to connect to IBM i');
+    const isConnected = await commands.executeCommand('code-for-ibmi.connectDirect', connection);
+    assert.ok(isConnected, 'Failed to connect to IBM i');
 
     // Run tests
     await runTests();
