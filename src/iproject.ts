@@ -2,14 +2,14 @@
  * (c) Copyright IBM Corp. 2023
  */
 
-import { IBMiObject } from "@halcyontech/vscode-ibmi-types";
+import { Action, DeploymentMethod, DeploymentParameters, IBMiObject } from "@halcyontech/vscode-ibmi-types";
 import * as dotenv from 'dotenv';
 import { ValidatorResult } from "jsonschema";
 import * as path from "path";
 import { TextEncoder } from "util";
-import { l10n, Uri, window, workspace, WorkspaceFolder } from "vscode";
+import { commands, l10n, Uri, window, workspace, WorkspaceFolder } from "vscode";
 import envUpdater from "./envUpdater";
-import { getInstance } from "./ibmi";
+import { getDeployTools, getInstance } from "./ibmi";
 import { IBMiJsonT } from "./ibmiJsonT";
 import { IProjectT } from "./iProjectT";
 import { JobLogInfo } from "./jobLog";
@@ -91,6 +91,11 @@ export class IProject {
   private environmentValues: EnvironmentVariables;
 
   /**
+   * Represents the project's current deployment method.
+   */
+  private deploymentMethod: DeploymentMethod;
+
+  /**
    * Represents the validation result of the project against the `iproj.json`
    * schema.
    */
@@ -103,6 +108,7 @@ export class IProject {
     this.libraryList = undefined;
     this.jobLogs = new RingBuffer<JobLogInfo>(10);
     this.environmentValues = {};
+    this.deploymentMethod = 'compare';
   }
 
   /**
@@ -422,19 +428,111 @@ export class IProject {
   }
 
   /**
+   * Run the project's build or compile command.
+   * 
+   * @param isBuild True for build command and false for compile command.
+   * @param fileUri The file uri to compile or `undefined` for builds.
+   */
+  public async runBuildOrCompileCommand(isBuild: boolean, fileUri?: Uri) {
+    const unresolvedState = await this.getUnresolvedState();
+
+    if (unresolvedState) {
+      const command = isBuild ? unresolvedState.buildCommand : unresolvedState.compileCommand;
+
+      if (command) {
+        // Delete existing directories
+        const directoryUris = ['.logs', '.evfevent'].map(dir => Uri.file(path.join(this.workspaceFolder.uri.fsPath, dir)));
+        for await (const uri of directoryUris) {
+          try {
+            await workspace.fs.stat(uri);
+            await workspace.fs.delete(uri, { recursive: true });
+          } catch { }
+        }
+
+        // Create directories
+        for await (const uri of directoryUris) {
+          await workspace.fs.createDirectory(uri);
+        }
+
+        const action: Action = {
+          name: command,
+          command: command,
+          environment: `pase`,
+          extensions: [`GLOBAL`],
+          deployFirst: true,
+          type: `file`,
+          postDownload: [
+            ".logs",
+            ".evfevent"
+          ]
+        };
+        await commands.executeCommand(`code-for-ibmi.runAction`, { resourceUri: fileUri ? fileUri : this.workspaceFolder.uri }, undefined, action, this.deploymentMethod);
+        ProjectManager.fire({ type: isBuild ? 'build' : 'compile', iProject: this });
+      } else {
+        if (isBuild) {
+          window.showErrorMessage(l10n.t('Project\'s build command not set'), l10n.t('Set Build Command'))
+            .then(async (item) => {
+              if (item === l10n.t('Set Build Command')) {
+                await commands.executeCommand(`vscode-ibmi-projectexplorer.projectExplorer.setBuildCommand`, this);
+              }
+            });
+        } else {
+          window.showErrorMessage(l10n.t('Project\'s compile command not set'), l10n.t('Set Compile Command'))
+            .then(async (item) => {
+              if (item === l10n.t('Set Compile Command')) {
+                await commands.executeCommand(`vscode-ibmi-projectexplorer.projectExplorer.setCompileCommand`, this);
+              }
+            });
+        }
+      }
+    }
+  }
+
+  /**
+   * Set the `buildCommand` or `compileCommand` attribute of the project's
+   * `iproj.json.
+   * 
+   * @param command The command to set.
+   * @param isBuild True for build command and false for compile command.
+   */
+  public async setBuildOrCompileCommand(command: string, isBuild: boolean) {
+    const unresolvedState = await this.getUnresolvedState();
+
+    if (unresolvedState) {
+      const attribute = isBuild ? 'buildCommand' : 'compileCommand';
+
+      if (unresolvedState[attribute] === command) {
+        window.showErrorMessage(isBuild ? l10n.t('Build command already set to {0}', command) : l10n.t('Compile command already set to {0}', command));
+        return;
+      } else {
+        unresolvedState[attribute] = command;
+      }
+
+      await this.updateIProj(unresolvedState);
+    } else {
+      window.showErrorMessage(l10n.t('No iproj.json found'));
+    }
+  }
+
+  /**
    * Add a directory to the `includePath` attribute of the project's `iproj.json`
    * file. *Note* that directories will be resolved based on the project's
-   * deploy location.
+   * workspace folder or deploy location.
    * 
    * @param directory The directory to add.
    */
   public async addToIncludePaths(directory: string) {
-    const deployDir = this.getDeployDir();
-    if (deployDir) {
-      const relative = path.posix.relative(deployDir, directory);
+    // Attempt to get the relative path to the project's workspace folder first and then try the deploy location
+    const workspaceFolderPath = this.workspaceFolder.uri.path;
+    const deployLocation = this.getDeployLocation();
+    for (const parent of [workspaceFolderPath, deployLocation]) {
+      if (parent) {
+        const relative = path.posix.relative(parent, directory);
 
-      if (!relative.startsWith("..") && relative !== '') {
-        directory = relative;
+        if (!relative.startsWith("..") && relative !== '') {
+          directory = relative;
+          break;
+        }
       }
     }
 
@@ -462,9 +560,9 @@ export class IProject {
    * to a variable. *Note* that the variable and value will also be added to the 
    * project's `.env` file.
    * 
-   * @param attributes 
-   * @param variable 
-   * @param value 
+   * @param attributes The attributes to update.
+   * @param variable The variable to set.
+   * @param value The value of the variable.
    */
   public async configureAsVariable(attributes: (keyof IProjectT)[], variable: string, value: string) {
     const unresolvedState = await this.getUnresolvedState();
@@ -751,6 +849,7 @@ export class IProject {
    */
   public setLibraryList(libraryList: LibraryList | undefined) {
     this.libraryList = libraryList;
+    ProjectManager.fire({ type: 'libraryList', iProject: this });
   }
 
   /**
@@ -1124,10 +1223,10 @@ export class IProject {
   /**
    * Get the project's deploy location. *Note* that for a project that
    * has not set their deploy location, `undefined` will be returned.
-   * 
+   *
    * @returns The project's deploy location or `undefined`.
    */
-  public getDeployDir(): string | undefined {
+  public getDeployLocation(): string | undefined {
     const ibmi = getInstance();
     const storage = ibmi?.getStorage();
     if (storage) {
@@ -1150,9 +1249,47 @@ export class IProject {
   }
 
   /**
+   * Get the project's deployment parameters which includes the workspace folder,
+   * deployment method, remote path, and ignore rules.
+   * 
+   * @returns The project's deployment parameters or `undefined`.
+   */
+  public async getDeploymentParameters(): Promise<DeploymentParameters | undefined> {
+    const deployLocation = this.getDeployLocation();
+
+    if (deployLocation) {
+      const deployTools = getDeployTools();
+
+      return {
+        method: this.deploymentMethod,
+        workspaceFolder: this.workspaceFolder,
+        remotePath: deployLocation,
+        ignoreRules: await deployTools?.getDefaultIgnoreRules(this.workspaceFolder)
+      };
+    }
+  }
+
+  /**
+   * Set the project's deployment method.
+   * 
+   * @param deploymentMethod The deployment method.
+   */
+  public setDeploymentMethod(deploymentMethod: DeploymentMethod) {
+    this.deploymentMethod = deploymentMethod;
+  }
+
+  /**
+   * Deploy the project using the current deployment parameters.
+   */
+  public async deployProject() {
+    const deployTools = getDeployTools();
+    await deployTools?.launchDeploy(this.workspaceFolder.index, this.deploymentMethod);
+  }
+
+  /**
    * Get all the project job logs which includes the local `joblog.json`
    * and any kept in memory.
-   * 
+   *
    * @returns The project's job logs.
    */
   public getJobLogs(): JobLogInfo[] {

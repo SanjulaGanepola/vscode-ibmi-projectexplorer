@@ -2,11 +2,12 @@
  * (c) Copyright IBM Corp. 2023
  */
 
-import { EventEmitter, ExtensionContext, l10n, StatusBarAlignment, StatusBarItem, Uri, window, workspace, WorkspaceFolder, commands } from "vscode";
-import { IProject } from "./iproject";
-import { ProjectExplorerTreeItem } from "./views/projectExplorer/projectExplorerTreeItem";
-import Project from "./views/projectExplorer/project";
 import { Validator } from "jsonschema";
+import { EventEmitter, ExtensionContext, StatusBarAlignment, StatusBarItem, Uri, WorkspaceFolder, commands, l10n, window, workspace } from "vscode";
+import { ConfigurationManager, ConfigurationSection } from "./configurationManager";
+import { IProject } from "./iproject";
+import Project from "./views/projectExplorer/project";
+import { ProjectExplorerTreeItem } from "./views/projectExplorer/projectExplorerTreeItem";
 
 /**
  * Project explorer events each serve a different purpose:
@@ -14,9 +15,11 @@ import { Validator } from "jsonschema";
  * - `activeProject` event is fired when there is a change to the active project
  * - `libraryList` event is fired when there is a change to a project's library list
  * - `deployLocation` event is fired when there is a change to a project's deploy location
+ * - `build` event is fired when a build is finished
+ * - `compile` event is fired when a compile is finished
  */
-export type ProjectExplorerEventT = 'projects' | 'activeProject' | 'libraryList' | 'deployLocation';
-
+export type ProjectExplorerEventT = 'projects' | 'activeProject' | 'libraryList' | 'deployLocation' | 'build' | 'compile';
+export type ProjectExplorerEventCallback = (iProject?: IProject) => void;
 /**
  * Project explorer event
  */
@@ -67,7 +70,7 @@ export class ProjectManager {
      * An array of events that store an association between an event and a subscriber's
      * call back function.
      */
-    private static events: { event: ProjectExplorerEventT, func: Function }[] = [];
+    private static events: { event: ProjectExplorerEventT, callback: ProjectExplorerEventCallback}[] = [];
 
     /**
      * Initialize the project manager by setting up the JSON schema validator, the 
@@ -85,7 +88,7 @@ export class ProjectManager {
 
         this.emitter.event(e => {
             this.events.filter(event => event.event === e.type)
-                .forEach(event => event.func(e.iProject));
+                .forEach(event => event.callback(e.iProject));
         });
 
         this.activeProjectStatusBarItem = window.createStatusBarItem(StatusBarAlignment.Left, 9);
@@ -117,8 +120,8 @@ export class ProjectManager {
      * @param event 
      * @param func 
      */
-    public static onEvent(event: ProjectExplorerEventT, func: Function) {
-        this.events.push({ event, func });
+    public static onEvent(event: ProjectExplorerEventT, callback: ProjectExplorerEventCallback) {
+        this.events.push({ event, callback });
     }
 
     /**
@@ -181,6 +184,11 @@ export class ProjectManager {
      * @param workspaceFolder A workspace folder or `undefined`.
      */
     public static async setActiveProject(workspaceFolder: WorkspaceFolder | undefined) {
+        // Check if active project is already set to given workspace folder
+        if (workspaceFolder === this.activeProject?.workspaceFolder) {
+            return;
+        }
+
         if (workspaceFolder) {
             this.activeProject = this.loaded[workspaceFolder.index];
             this.activeProjectStatusBarItem.text = '$(root-folder) ' + l10n.t('Project: {0}', this.activeProject.workspaceFolder.name);
@@ -199,7 +207,10 @@ export class ProjectManager {
             };
         }
 
-        await commands.executeCommand('setContext', 'code-for-ibmi:libraryListDisabled', this.activeProject ? true : false);
+        const disableUserLibraryList = ConfigurationManager.get(ConfigurationSection.disableUserLibraryList);
+        if (disableUserLibraryList) {
+            await commands.executeCommand('setContext', 'code-for-ibmi:libraryListDisabled', this.activeProject ? true : false);
+        }
         await commands.executeCommand('setContext', 'vscode-ibmi-projectexplorer:hasActiveProject', this.activeProject ? true : false);
         this.fire({ type: 'activeProject', iProject: this.activeProject });
     }
