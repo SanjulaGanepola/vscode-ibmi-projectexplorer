@@ -12,6 +12,7 @@ on:
 
 env:
   HOST: ${{ secrets.HOST }}
+  PORT: ${{ secrets.PORT }}
   USER: ${{ secrets.USER }}  
   PASSWORD: ${{ secrets.PASSWORD }}
 
