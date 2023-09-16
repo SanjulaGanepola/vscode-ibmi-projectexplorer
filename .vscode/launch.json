@@ -13,7 +13,7 @@
 				"--extensionDevelopmentPath=${workspaceFolder}"
 			],
 			"outFiles": [
-				"${workspaceFolder}/out/**/*.js"
+				"${workspaceFolder}/dist/**/*.js"
 			],
 			"preLaunchTask": "npm: compile"
 		},
@@ -22,14 +22,13 @@
 			"type": "extensionHost",
 			"request": "launch",
 			"args": [
-				"${workspaceFolder}/src/test/testFixtures/ibmi-company_system",
 				"--extensionDevelopmentPath=${workspaceFolder}"
 			],
 			"outFiles": [
-				"${workspaceFolder}/out/**/*.js"
-			],
+				"${workspaceFolder}/dist/**/*.js"
+			],			
 			"sourceMaps": true,
-			"preLaunchTask": "npm: compile-tests",
+			"preLaunchTask": "npm: compile",
 			"env": {
 				"testing": "true"
 			}

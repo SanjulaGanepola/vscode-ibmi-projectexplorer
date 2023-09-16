@@ -8,15 +8,12 @@ import JobLog from './views/jobLog';
 import ProjectExplorer from './views/projectExplorer';
 import { ExtensionContext, l10n, window, workspace } from 'vscode';
 import { IBMiProjectExplorer } from './ibmiProjectExplorer';
+import { initialise } from './testing';
 import { ProjectFileWatcher } from './fileWatcher';
 import { ConfigurationManager } from './configurationManager';
-import { run } from './test';
-
-export let extensionContext: ExtensionContext;
 
 export async function activate(context: ExtensionContext): Promise<IBMiProjectExplorer> {
 	console.log(l10n.t('Congratulations, your extension "vscode-ibmi-projectexplorer" is now active!'));
-	extensionContext = context;
 
 	// Load Code for IBM i API
 	loadBase();
@@ -71,9 +68,11 @@ export async function activate(context: ExtensionContext): Promise<IBMiProjectEx
 		})
 	);
 
-	if (process.env.testing) {
-		// Run tests if testing environment variable is set
-		await run(false);
+	// Setup tests
+	console.log(`Developer environment: ${process.env.DEV}`);
+	if (process.env.DEV) {
+		// Run tests if not in production build
+		await initialise(context);
 	}
 
 	return { projectManager: ProjectManager, projectExplorer: projectExplorer, jobLog: jobLog };
