@@ -48,7 +48,7 @@ export interface TestCase {
   status?: "running" | "failed" | "pass"
   failure?: string
   test: () => Promise<void>
-  duration?: number
+  duration: number
 }
 
 let testSuitesTreeProvider: TestSuitesTreeProvider;
@@ -141,6 +141,7 @@ export async function run(connect: boolean = true) {
 }
 
 async function runTests() {
+  const startTime = +(new Date());
   await commands.executeCommand(`testing.focus`);
 
   for (const suite of suites) {
@@ -191,9 +192,10 @@ async function runTests() {
 
   // Process test results
   let suitesPassed = 0;
-  let suiteTotal = suites.length;
+  let suiteTotal = 0;
   let testsPassed = 0;
   let testTotal = 0;
+  let time = +(new Date()) - startTime;
   for (const suite of suites) {
     suiteTotal++;
     if (!suite.failure) {
@@ -203,16 +205,16 @@ async function runTests() {
     for (const test of suite.tests) {
       testTotal++;
       if (!test.failure) {
-        testTotal++;
+        testsPassed++;
       }
     }
   }
 
-  // Output resylts
-  console.log();
-  console.log(`Test Suites: ${suitesPassed} passed, ${suiteTotal} total`);
-  console.log(`Tests: ${testsPassed} passed, ${testTotal} total`);
-  if (testsPassed !== testsPassed || suitesPassed !== suiteTotal) {
+  // Output results
+  console.log(`\nTest Suites: ${suitesPassed} passed, ${suiteTotal} total`);
+  console.log(`Tests:         ${testsPassed} passed, ${testTotal} total`);
+  console.log(`Time:          ${time / 1000} second(s)\n`);
+  if (suitesPassed !== suiteTotal || testsPassed !== testTotal) {
     process.exit(1);
   }
 }
