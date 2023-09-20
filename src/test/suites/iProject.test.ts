@@ -27,9 +27,11 @@ export const iProjectSuite: TestSuite = {
 
         const iProject = ProjectManager.getProjects()[0];
         const ibmi = getInstance();
+        const connection = ibmi?.getConnection()!;
         const storage = ibmi?.getStorage()!;
         const existingPaths = storage.getDeployment();
         deployLocation = ibmi!.getConnection().getTempRemote(iProject.getName());
+        await connection.sendCommand({ command: `mkdir -p ${deployLocation}` });
         existingPaths[iProject.workspaceFolder.uri.fsPath] = deployLocation;
         await storage.setDeployment(existingPaths);
     },

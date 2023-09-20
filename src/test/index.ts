@@ -48,7 +48,7 @@ export interface TestCase {
   status?: "running" | "failed" | "pass"
   failure?: string
   test: () => Promise<void>
-  duration: number
+  duration?: number
 }
 
 let testSuitesTreeProvider: TestSuitesTreeProvider;

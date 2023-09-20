@@ -71,9 +71,11 @@ export const projectExplorerTreeItemSuite: TestSuite = {
         await createFolder(iProject.workspaceFolder.uri, testFolder);
 
         const ibmi = getInstance();
+        const connection = ibmi?.getConnection()!;
         const storage = ibmi?.getStorage()!;
         const existingPaths = storage.getDeployment();
         deployLocation = ibmi!.getConnection().getTempRemote(iProject.getName());
+        await connection.sendCommand({ command: `mkdir -p ${deployLocation}` });
         existingPaths[iProject.workspaceFolder.uri.fsPath] = deployLocation;
         await storage.setDeployment(existingPaths);
         iProject.setDeploymentMethod('all');
@@ -417,7 +419,7 @@ export const projectExplorerTreeItemSuite: TestSuite = {
                     }
                 });
             }
-        },
+        }
     ]
 };
 
