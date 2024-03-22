@@ -847,8 +847,8 @@ export class IProject {
    * Generate the commands to update the library list using pase 'liblist' commmands and execute them
    * Return the result of those commands
    */
-  public async updateLibraryListOnIbmi(ibmi: Instance, state: IProjectT): Promise<CommandResult> {
-    let buildLibraryListCommand = await this.calcUpdateLibraryListCommand(ibmi, state);
+  public async updateLibraryListOnIbmi(ibmi: Instance, state?: IProjectT): Promise<CommandResult> {
+    let buildLibraryListCommand = state ? await this.calcUpdateLibraryListCommand(ibmi, state) : `liblist`;
 
     const liblResult = await ibmi.getConnection().sendQsh({
       command: buildLibraryListCommand
@@ -905,7 +905,7 @@ export class IProject {
     // Get user libraries with variables resolved
     const state = await this.getState();
 
-    if (ibmi && ibmi.getConnection() && state) {
+    if (ibmi && ibmi.getConnection()) {
       const liblResult = await this.updateLibraryListOnIbmi(ibmi, state);
       if (liblResult && liblResult.code === 0) {
         const libraryListString = liblResult.stdout;
